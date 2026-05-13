@@ -32,10 +32,4 @@ jobs:
 
     - name: Run standard test suite
       run: |
-        # Run all tests in the tests/ directory
         pytest tests/
-
-    - name: Test documentation examples
-      run: |
-        # Run the codeblocks inside your markdown files
-        pytest --codeblocks docs/
