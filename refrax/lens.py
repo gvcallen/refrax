@@ -54,18 +54,19 @@ class Lens(Generic[TRoot]):
     # --- The Bridge to Traversal ---
     
     def select(self, *names: str) -> Traversal[TRoot]:
-        """Branches the Lens into a Traversal targeting multiple attributes.
+        """Branches the Lens into a Traversal targeting multiple (potentially nested) attributes.
 
         Args:
-            *names (str): A variable number of attribute names to target.
+            *names (str): A variable number of attribute paths to target (e.g., 'attr1' or 'attr1.attr2').
 
         Returns:
             Traversal[TRoot]: A Traversal object focused on the specified attributes.
-
-        Examples:
-            >>> new_model = model.at.select('source_a', 'source_b').set(new_val)
         """
-        sub_paths: list[list[PathStep]] = [[("attr", name)] for name in names]
+        sub_paths: list[list[PathStep]] = []
+        for name in names:
+            path: list[PathStep] = [("attr", part) for part in name.split(".")]
+            sub_paths.append(path)
+            
         return Traversal(self._tree, self._path, sub_paths)
 
     def each(self) -> Traversal[TRoot]:
