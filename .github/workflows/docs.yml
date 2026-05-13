@@ -1,0 +1,31 @@
+name: Deploy MkDocs
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install mkdocs mkdocs-material mkdocstrings[python] mkdocs-macros-plugin
+        pip install -e ".[docs]"
+
+    - name: Deploy to GitHub Pages
+      run: |
+        # This single command builds the static site and pushes it to the gh-pages branch
+        mkdocs gh-deploy --force
