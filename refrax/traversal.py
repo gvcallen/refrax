@@ -4,21 +4,17 @@ import equinox as eqx
 
 from refrax.custom_types import TRoot, PathStep, PathOp
 
+
 class Traversal(Generic[TRoot]):
-    """
-    Represents a multi-target focus within an immutable PyTree.
+    """Represents a multi-target focus within an immutable PyTree.
 
     Applies mutations across all targets simultaneously using `eqx.tree_at`, 
     making it fully compatible with JAX JIT compilation and tracing.
 
-    Parameters
-    ----------
-    tree : TRoot
-        The root immutable object (e.g., Equinox module or dataclass).
-    base_path : list[tuple[Literal["attr", "item"], Any]]
-        The shared path from the root to the divergence point.
-    sub_paths : list[list[tuple[Literal["attr", "item"], Any]]]
-        A list of diverging paths, one for each targeted element.
+    Args:
+        tree (TRoot): The root immutable object (e.g., Equinox module or dataclass).
+        base_path (list[PathStep]): The shared path from the root to the divergence point.
+        sub_paths (list[list[PathStep]]): A list of diverging paths, one for each targeted element.
     """
     def __init__(self, tree: TRoot, base_path: list[PathStep], sub_paths: list[list[PathStep]]) -> None:
         self._tree = tree
@@ -26,46 +22,43 @@ class Traversal(Generic[TRoot]):
         self._sub_paths = sub_paths
 
     def __getattr__(self, name: str) -> "Traversal[TRoot]":
-        """
-        Broadens the traversal by appending an attribute access 
-        to every currently focused target.
+        """Broadens the traversal by appending an attribute access to every currently focused target.
 
-        Parameters
-        ----------
-        name : str
-            The name of the attribute to access on all targets.
+        Args:
+            name (str): The name of the attribute to access on all targets.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A new Traversal focused one level deeper.
+        Returns:
+            Traversal[TRoot]: A new Traversal focused one level deeper.
         """
         new_sub_paths = [path + [("attr", name)] for path in self._sub_paths]
         return Traversal(self._tree, self._base_path, new_sub_paths)
 
     def __getitem__(self, key: Any) -> "Traversal[TRoot]":
-        """
-        Broadens the traversal by appending an item/index access 
-        to every currently focused target. Strings are treated as attributes.
+        """Broadens the traversal by appending an item/index access to every currently focused target. 
+        
+        Strings are treated as attributes.
 
-        Parameters
-        ----------
-        key : Any
-            The index, dictionary key, or attribute string to access.
+        Args:
+            key (Any): The index, dictionary key, or attribute string to access.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A new Traversal focused one level deeper.
+        Returns:
+            Traversal[TRoot]: A new Traversal focused one level deeper.
         """
         op: PathOp = "attr" if isinstance(key, str) else "item"
         new_sub_paths = [path + [(op, key)] for path in self._sub_paths]
         return Traversal(self._tree, self._base_path, new_sub_paths)
 
     def _get_targets_from(self, tree: Any) -> tuple[Any, ...]:
-        """
-        Internal generator for eqx.tree_at. Dynamically walks the paths 
-        to return all target nodes from a given root tree (or Equinox tracer).
+        """Internal generator for eqx.tree_at. 
+        
+        Dynamically walks the paths to return all target nodes from a given root tree 
+        (or Equinox tracer).
+        
+        Args:
+            tree (Any): The root tree or Equinox tracer to walk.
+            
+        Returns:
+            tuple[Any, ...]: A tuple of all resolved target nodes.
         """
         targets = []
         for path in self._sub_paths:
@@ -79,18 +72,13 @@ class Traversal(Generic[TRoot]):
         return tuple(targets)
 
     def apply(self, func: Callable[[Any], Any]) -> TRoot:
-        """
-        Applies a function to all selected targets simultaneously.
+        """Applies a function to all selected targets simultaneously.
 
-        Parameters
-        ----------
-        func : Callable[[Any], Any]
-            The transformation function to apply to each target.
+        Args:
+            func (Callable[[Any], Any]): The transformation function to apply to each target.
 
-        Returns
-        -------
-        TRoot
-            A new instance of the root tree with all targets updated.
+        Returns:
+            TRoot: A new instance of the root tree with all targets updated.
         """
         if not self._sub_paths:
             return self._tree
@@ -98,18 +86,13 @@ class Traversal(Generic[TRoot]):
         return eqx.tree_at(self._get_targets_from, self._tree, replace_fn=func)
 
     def set(self, value: Any) -> TRoot:
-        """
-        Sets all selected targets to a specific value.
+        """Sets all selected targets to a specific value.
 
-        Parameters
-        ----------
-        value : Any
-            The new value to assign to all targets.
+        Args:
+            value (Any): The new value to assign to all targets.
 
-        Returns
-        -------
-        TRoot
-            A new instance of the root tree with the updated values.
+        Returns:
+            TRoot: A new instance of the root tree with the updated values.
         """
         if not self._sub_paths:
             return self._tree
@@ -119,30 +102,22 @@ class Traversal(Generic[TRoot]):
         return eqx.tree_at(self._get_targets_from, self._tree, replace=replacements)
 
     def get(self) -> list[Any]:
-        """
-        Extracts all focused values.
+        """Extracts all focused values.
 
-        Returns
-        -------
-        list[Any]
-            A list containing the values of all currently focused targets.
+        Returns:
+            list[Any]: A list containing the values of all currently focused targets.
         """
         return list(self._get_targets_from(self._tree))
     
     def filter(self, predicate: Callable[[Any], bool]) -> "Traversal[TRoot]":
-        """
-        Filters the currently focused targets, keeping only those that 
-        match the condition.
+        """Filters the currently focused targets, keeping only those that match the condition.
 
-        Parameters
-        ----------
-        predicate : Callable[[Any], bool]
-            A function that returns True to keep a target, or False to drop it.
+        Args:
+            predicate (Callable[[Any], bool]): A function that returns True to keep a target, 
+                or False to drop it.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A new Traversal focused only on the targets that passed the filter.
+        Returns:
+            Traversal[TRoot]: A new Traversal focused only on the targets that passed the filter.
         """
         from refrax.lens import Lens
         

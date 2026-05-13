@@ -3,7 +3,7 @@ from refrax.lens import Lens
 
 class OpticsMixin:
     """
-    Mixin to add the fluent `.at` property to class.
+    Adds an `.at` property to your class which returns `refrax.Lens` on `self`.
     """
     @property
     def at(self) -> Lens[Self]:

@@ -5,19 +5,16 @@ import equinox as eqx
 from refrax.custom_types import TRoot, PathOp, PathStep
 from refrax.traversal import Traversal
 
+
 class Lens(Generic[TRoot]):
-    """
-    A fluent interface for mutating immutable Equinox PyTrees.
+    """A fluent interface for mutating immutable Equinox PyTrees.
 
     Uses `eqx.tree_at` under the hood to functionally swap leaves in the PyTree,
     making it completely safe for use inside JAX JIT/vmap boundaries.
 
-    Parameters
-    ----------
-    tree : TRoot
-        The root immutable object to be mutated.
-    path : list[tuple[Literal["attr", "item"], Any]], optional
-        The current traversal path from the root, by default None.
+    Args:
+        tree (TRoot): The root immutable object to be mutated.
+        path (list[PathStep] | None): The current traversal path from the root, by default None.
     """
     _tree: TRoot
     _path: list[PathStep]
@@ -27,39 +24,29 @@ class Lens(Generic[TRoot]):
         self._path = path if path is not None else []
 
     def __getattr__(self, name: str) -> "Lens[TRoot]":
-        """
-        Focuses the lens on a named attribute.
+        """Focuses the lens on a named attribute.
 
-        Parameters
-        ----------
-        name : str
-            The name of the attribute.
+        Args:
+            name (str): The name of the attribute.
 
-        Returns
-        -------
-        Lens[TRoot]
-            A new Lens focused on the specified attribute.
+        Returns:
+            Lens[TRoot]: A new Lens focused on the specified attribute.
         """
         if name.startswith('__') and name.endswith('__'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         return Lens(self._tree, self._path + [("attr", name)])
 
     def __getitem__(self, key: Any) -> "Lens[TRoot]":
-        """
-        Focuses the lens on a collection item, dictionary key, or attribute.
+        """Focuses the lens on a collection item, dictionary key, or attribute.
 
         If the key is a string, it is treated as an attribute access 
         (equivalent to `getattr`). Otherwise, it is treated as an item access.
 
-        Parameters
-        ----------
-        key : Any
-            The index, key, or attribute name.
+        Args:
+            key (Any): The index, key, or attribute name.
 
-        Returns
-        -------
-        Lens[TRoot]
-            A new Lens focused on the specified item or attribute.
+        Returns:
+            Lens[TRoot]: A new Lens focused on the specified item or attribute.
         """
         op: PathOp = "attr" if isinstance(key, str) else "item"
         return Lens(self._tree, self._path + [(op, key)])
@@ -67,43 +54,31 @@ class Lens(Generic[TRoot]):
     # --- The Bridge to Traversal ---
     
     def select(self, *names: str) -> Traversal[TRoot]:
-        """
-        Branches the Lens into a Traversal targeting multiple attributes.
+        """Branches the Lens into a Traversal targeting multiple attributes.
 
-        Parameters
-        ----------
-        *names : str
-            A variable number of attribute names to target.
+        Args:
+            *names (str): A variable number of attribute names to target.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A Traversal object focused on the specified attributes.
+        Returns:
+            Traversal[TRoot]: A Traversal object focused on the specified attributes.
 
-        Examples
-        --------
-        >>> new_model = model.at.select('source_a', 'source_b').set(new_val)
+        Examples:
+            >>> new_model = model.at.select('source_a', 'source_b').set(new_val)
         """
         sub_paths: list[list[PathStep]] = [[("attr", name)] for name in names]
         return Traversal(self._tree, self._path, sub_paths)
 
     def each(self) -> Traversal[TRoot]:
-        """
-        Transforms a focus on a collection into a Traversal of its elements.
+        """Transforms a focus on a collection into a Traversal of its elements.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A Traversal object focused on every item in the target collection.
+        Returns:
+            Traversal[TRoot]: A Traversal object focused on every item in the target collection.
 
-        Raises
-        ------
-        TypeError
-            If the current focus is not a dictionary, list, or tuple.
+        Raises:
+            TypeError: If the current focus is not a dictionary, list, or tuple.
 
-        Examples
-        --------
-        >>> new_model = model.at.sources.each().apply(lambda x: x * 2)
+        Examples:
+            >>> new_model = model.at.sources.each().apply(lambda x: x * 2)
         """
         target = self.get()
         sub_paths: list[list[PathStep]] = []
@@ -118,24 +93,18 @@ class Lens(Generic[TRoot]):
         return Traversal(self._tree, self._path, sub_paths)
 
     def filter(self, predicate: Callable[[Any], bool]) -> Traversal[TRoot]:
-        """
-        Traverses all attributes of the current focus that match a condition.
+        """Traverses all attributes of the current focus that match a condition.
 
-        Parameters
-        ----------
-        predicate : Callable[[Any], bool]
-            A function that takes an attribute value and returns True if it 
-            should be included in the Traversal.
+        Args:
+            predicate (Callable[[Any], bool]): A function that takes an attribute value 
+                and returns True if it should be included in the Traversal.
 
-        Returns
-        -------
-        Traversal[TRoot]
-            A Traversal object focused on all matching attributes.
+        Returns:
+            Traversal[TRoot]: A Traversal object focused on all matching attributes.
 
-        Examples
-        --------
-        >>> is_active = lambda s: getattr(s, 'is_active', False)
-        >>> new_model = model.at.filter(is_active).apply(freeze)
+        Examples:
+            >>> is_active = lambda s: getattr(s, 'is_active', False)
+            >>> new_model = model.at.filter(is_active).apply(freeze)
         """
         target = self.get()
         sub_paths: list[list[PathStep]] = []
@@ -154,9 +123,15 @@ class Lens(Generic[TRoot]):
     # --- Core Retrieval & eqx.tree_at Logic ---
 
     def _get_target_from(self, tree: Any) -> Any:
-        """
-        Traverses the recorded path from a specified tree to return the target node.
+        """Traverses the recorded path from a specified tree to return the target node.
+        
         This is designed to be passed cleanly into `eqx.tree_at`.
+
+        Args:
+            tree (Any): The tree to traverse.
+
+        Returns:
+            Any: The resolved target node.
         """
         curr: Any = tree
         for op_type, val in self._path:
@@ -167,29 +142,21 @@ class Lens(Generic[TRoot]):
         return curr
 
     def get(self) -> Any:
-        """
-        Extracts the currently focused value.
+        """Extracts the currently focused value.
 
-        Returns
-        -------
-        Any
-            The value at the end of the Lens path.
+        Returns:
+            Any: The value at the end of the Lens path.
         """
         return self._get_target_from(self._tree)
 
     def set(self, value: Any) -> TRoot:
-        """
-        Sets the focused target to a specific value.
+        """Sets the focused target to a specific value.
 
-        Parameters
-        ----------
-        value : Any
-            The new value to assign.
+        Args:
+            value (Any): The new value to assign.
 
-        Returns
-        -------
-        TRoot
-            A new instance of the root tree with the updated value.
+        Returns:
+            TRoot: A new instance of the root tree with the updated value.
         """
         if not self._path:
             return cast(TRoot, value)
@@ -197,18 +164,13 @@ class Lens(Generic[TRoot]):
         return eqx.tree_at(self._get_target_from, self._tree, replace=value)
 
     def apply(self, func: Callable[[Any], Any]) -> TRoot:
-        """
-        Applies a transformation function to the focused target.
+        """Applies a transformation function to the focused target.
 
-        Parameters
-        ----------
-        func : Callable[[Any], Any]
-            The function to transform the current value.
+        Args:
+            func (Callable[[Any], Any]): The function to transform the current value.
 
-        Returns
-        -------
-        TRoot
-            A new instance of the root tree with the updated value.
+        Returns:
+            TRoot: A new instance of the root tree with the updated value.
         """
         if not self._path:
             return cast(TRoot, func(self._tree))
