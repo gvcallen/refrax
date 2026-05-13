@@ -1,0 +1,60 @@
+site_name: parax
+repo_url: https://github.com/parax/parax
+
+theme:
+  name: material
+  features:
+    - navigation.sections    # Groups the left sidebar into neat sections
+    - toc.integrate          # Integrates the right-side TOC into the left sidebar on mobile
+    - header.autohide        # Gives more screen space for reading docs
+    - content.code.copy      # Adds copy buttons to your JAX example blocks
+  palette:
+    - scheme: default
+      primary: white
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - macros
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: true
+            merge_init_into_class: true
+            show_if_no_docstring: false  # Hides undocumented methods
+
+# Note: Only ONE markdown_extensions block here!
+markdown_extensions:
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - admonition
+  - toc:
+      toc_depth: 2
+  - pymdownx.snippets:
+      base_path: ["."]  # This grants permission to read files in your repo root!
+
+nav:
+  - Getting started: index.md
+  - API:
+    - Lens: api/lens.md
+    - Traversal: api/traversal.md
+  - License: license.md
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

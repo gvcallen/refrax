@@ -1,0 +1,38 @@
+[project]
+name = "Refrax"
+version = "0.0.1"
+description = "Chainable optics for JAX PyTrees"
+readme = "README.md"
+authors = [
+    { name = "Gary Allen", email = "gvcallen@gmail.com" }
+]
+dependencies = [
+    "equinox",
+]
+
+[project.optional-dependencies]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocs-macros-plugin",
+    "mkdocs-include-markdown-plugin",
+    "mkdocstrings[python]"
+]
+test = [
+    "pytest",
+    "pytest-codeblocks",
+]
+
+[project.urls]
+homepage = "https://github.com/gvcallen/refrax"
+
+[build-system]
+requires = [
+    "setuptools>=45",
+    "wheel",
+    "setuptools_scm[toml]>=6.2",
+]
+build-backend = 'setuptools.build_meta'
+
+[tool.setuptools.packages.find]
+include = ["refrax"]
