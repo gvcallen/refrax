@@ -12,7 +12,7 @@ pip install refrax
 
 ## Quick example
 
-This example demonstrates the Mixin approach on an [Equinox](https://github.com/patrick-kidger/equinox) module, which adds `.at` to your class and simply returns `refrax.Lens(self)`.
+This example demonstrates the Mixin approach on an [Equinox](https://github.com/patrick-kidger/equinox) module. This simply adds `.at` to your class, which returns `refrax.Lens(self)`.
 
 We define a dummy model with the mixin:
 ```python
