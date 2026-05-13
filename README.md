@@ -36,14 +36,17 @@ model = Model(
 
 Then we can do updates using `.at`:
 ```python
-new_model = model.at.dropout.set(0.1)
-new_model = model.at.select("core", "head").bias.apply(lambda b: b + 1.0)
+model = model.at.dropout.set(0.1)
+model = model.at.select("core", "head").bias.apply(lambda b: b + 1.0)
 
-new_model.core.bias
-# [1. 1. 1. 1. 1.]
+model.dropout
+# 0.1
 
-new_model.head.bias
-# [1. 1.]
+model.core.bias
+# [0.646, 0.860, 0.670 , 1.277 , 0.727]
+
+model.head.bias
+# [1.634, 1.877]
 ```
 
 ## Documentation
