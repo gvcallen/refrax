@@ -1,5 +1,5 @@
-site_name: parax
-repo_url: https://github.com/parax/parax
+site_name: refrax
+repo_url: https://github.com/refrax/refrax
 
 theme:
   name: material
