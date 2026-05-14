@@ -3,7 +3,7 @@ from typing import Generic, Any, Callable, cast
 import equinox as eqx
 
 from refrax.custom_types import TRoot, PathStep, PathOp
-
+from refrax.utils import parse_string_path
 
 class Traversal(Generic[TRoot]):
     """Represents a multi-target focus within an immutable PyTree.
@@ -128,3 +128,21 @@ class Traversal(Generic[TRoot]):
                 filtered_paths.append(path)
                 
         return Traversal(self._tree, self._base_path, filtered_paths)
+    
+    def path(self, path_str: str) -> "Traversal[TRoot]":
+        """
+        Broadens the traversal by appending a JAX-style string path to every currently focused target.
+        
+        The expected string path matches that returned by `jax.tree_util.keystr`.
+
+        Args:
+            path_str (str): The JAX-style path string (e.g., '.res.R' or '.cascade[0]').
+
+        Returns:
+            Traversal[TRoot]: A new Traversal focused one level deeper across all branches.
+        """
+        parsed_steps = parse_string_path(path_str)
+        
+        # Append the parsed steps to all diverging paths
+        new_sub_paths = [path + parsed_steps for path in self._sub_paths]
+        return Traversal(self._tree, self._base_path, new_sub_paths)

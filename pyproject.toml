@@ -1,6 +1,6 @@
 [project]
 name = "refrax"
-version = "0.0.3"
+version = "0.0.4"
 description = "Chainable optics for JAX PyTrees"
 readme = "README.md"
 authors = [

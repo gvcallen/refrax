@@ -1,10 +1,11 @@
 from typing import Any, Callable, Generic, cast
+import re
 
 import equinox as eqx
 
 from refrax.custom_types import TRoot, PathOp, PathStep
 from refrax.traversal import Traversal
-
+from refrax.utils import parse_string_path
 
 class Lens(Generic[TRoot]):
     """A fluent interface for mutating immutable Equinox PyTrees.
@@ -55,19 +56,36 @@ class Lens(Generic[TRoot]):
     
     def select(self, *names: str) -> Traversal[TRoot]:
         """Branches the Lens into a Traversal targeting multiple (potentially nested) attributes.
+        
+        Supports JAX-style string paths e.g. returned by `jax.tree_util.keystr`.
 
         Args:
-            *names (str): A variable number of attribute paths to target (e.g., 'attr1' or 'attr1.attr2').
+            *names (str): A variable number of attribute paths to target (e.g., 'attr1' or 'attr1.attr2[0]').
 
         Returns:
             Traversal[TRoot]: A Traversal object focused on the specified attributes.
         """
         sub_paths: list[list[PathStep]] = []
         for name in names:
-            path: list[PathStep] = [("attr", part) for part in name.split(".")]
-            sub_paths.append(path)
+            sub_paths.append(parse_string_path(name))
             
         return Traversal(self._tree, self._path, sub_paths)
+    
+    
+    def path(self, path_str: str) -> "Lens[TRoot]":
+        """
+        Parses a JAX-style string path and advances the Lens focus accordingly.
+        
+        The expected string path matches that returned by `jax.tree_util.keystr`.
+
+        Args:
+            path_str (str): The JAX-style path string (e.g., '.res.R' or '.cascade[0]').
+
+        Returns:
+            Lens[TRoot]: A new Lens focused on the parsed path.
+        """
+        parsed_steps = parse_string_path(path_str)
+        return Lens(self._tree, self._path + parsed_steps)
 
     def each(self) -> Traversal[TRoot]:
         """Transforms a focus on a collection into a Traversal of its elements.
