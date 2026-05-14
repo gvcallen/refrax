@@ -82,10 +82,11 @@ class Traversal(Generic[TRoot]):
         return list(self._get_targets_from(self._tree))    
 
     def set(self, value: Any) -> TRoot:
-        """Sets all selected targets to a specific value.
+        """Sets all selected targets to a specific value, or maps a sequence of values 1-to-1.
 
         Args:
-            value (Any): The new value to assign to all targets.
+            value (Any): The new value to assign. If value is a list/tuple of the exact 
+                same length as the focused targets, they will be mapped 1-to-1.
 
         Returns:
             TRoot: A new instance of the root tree with the updated values.
@@ -93,8 +94,13 @@ class Traversal(Generic[TRoot]):
         if not self._sub_paths:
             return self._tree
 
-        # eqx.tree_at requires the replacements tuple to match the length of the targets tuple
-        replacements = tuple(value for _ in self._sub_paths)
+        # 1-to-1 Mapping: If the user passed a list of values matching our targets
+        if isinstance(value, (list, tuple)) and len(value) == len(self._sub_paths):
+            replacements = tuple(value)
+        # Broadcasting: User passed a single value to apply everywhere
+        else:
+            replacements = tuple(value for _ in self._sub_paths)
+            
         return eqx.tree_at(self._get_targets_from, self._tree, replace=replacements)
     
     def apply(self, func: Callable[[Any], Any]) -> TRoot:
