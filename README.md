@@ -1,6 +1,8 @@
 # Refrax
 
-**Refrax** is a tiny library implementing the *optics* functional pattern for [JAX](https://github.com/jax-ml/jax) PyTrees.
+**Refrax** is a small library implementing the *optics* functional pattern for [JAX](https://github.com/jax-ml/jax) PyTrees.
+
+It focuses on elegant syntax and deep conditional chains as opposed to strict static typing.
 
 ## Installation
 
@@ -12,16 +14,11 @@ pip install refrax
 
 ## Quick example
 
-This example demonstrates the Mixin approach on an [Equinox](https://github.com/patrick-kidger/equinox) module. This simply adds `.at` to your class, which returns `refrax.Lens(self)`.
-
-We define a dummy model with the mixin:
 ```python
-from refrax import OpticsMixin
-
 import equinox as eqx
 import jax
 
-class Model(eqx.Module, OpticsMixin):
+class Model(eqx.Module):
     core: eqx.nn.Linear
     head: eqx.nn.Linear
     dropout: float
@@ -34,10 +31,12 @@ model = Model(
 )
 ```
 
-Then we can do updates using `.at`:
+Then we can do updates using `focus`:
 ```python
-model = model.at.dropout.set(0.1)
-model = model.at.select("core", "head").bias.apply(lambda b: b + 1.0)
+from refrax import focus
+
+model = focus(model).dropout.set(0.1)
+model = focus(model).select("core", "head").bias.apply(lambda b: b + 1.0)
 
 model.dropout
 # 0.1

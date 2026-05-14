@@ -35,7 +35,7 @@ def test_lens_filter_attributes(base_system: System):
     from conftest import Component
     
     # Freeze all Component instances at the root of System
-    new_sys = base_system.at.filter(lambda x: isinstance(x, Component)).is_active.set(False)
+    new_sys = base_system.at.where(lambda x: isinstance(x, Component)).is_active.set(False)
     
     assert new_sys.main_comp.is_active is False
     assert new_sys.backup_comp.is_active is False

@@ -1,4 +1,8 @@
+from typing import Any, Callable
 import re
+
+import jax.tree_util as jtu
+
 from refrax.custom_types import PathStep
 
 def parse_string_path(path_str: str) -> list[PathStep]:
@@ -23,3 +27,21 @@ def parse_string_path(path_str: str) -> list[PathStep]:
             steps.append(("item", dict_key))
             
     return steps
+
+
+def translate_jax_path(jax_path: tuple) -> list[PathStep]:
+    """Translates JAX native KeyPaths into refrax PathSteps."""
+    refrax_path = []
+    for key in jax_path:
+        if isinstance(key, jtu.DictKey):
+            refrax_path.append(("item", key.key))
+        elif isinstance(key, jtu.SequenceKey):
+            refrax_path.append(("item", key.idx))
+        elif isinstance(key, jtu.GetAttrKey):
+            refrax_path.append(("attr", key.name))
+        else:
+            # Fallback for edge-case keys (like FlattenedIndexKey)
+            # You can expand this as needed.
+            key_str = str(key).strip("[].")
+            refrax_path.append(("attr", key_str)) 
+    return refrax_path

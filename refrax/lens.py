@@ -2,10 +2,11 @@ from typing import Any, Callable, Generic, cast
 import re
 
 import equinox as eqx
+import jax.tree_util as jtu
 
 from refrax.custom_types import TRoot, PathOp, PathStep
 from refrax.traversal import Traversal
-from refrax.utils import parse_string_path
+from refrax.utils import parse_string_path, translate_jax_path
 
 class Lens(Generic[TRoot]):
     """A fluent interface for mutating immutable Equinox PyTrees.
@@ -71,7 +72,6 @@ class Lens(Generic[TRoot]):
             
         return Traversal(self._tree, self._path, sub_paths)
     
-    
     def path(self, path_str: str) -> "Lens[TRoot]":
         """
         Parses a JAX-style string path and advances the Lens focus accordingly.
@@ -97,7 +97,7 @@ class Lens(Generic[TRoot]):
             TypeError: If the current focus is not a dictionary, list, or tuple.
 
         Examples:
-            >>> new_model = model.at.sources.each().apply(lambda x: x * 2)
+            >>> new_model = focus(model).sources.each().apply(lambda x: x * 2)
         """
         target = self.get()
         sub_paths: list[list[PathStep]] = []
@@ -111,7 +111,7 @@ class Lens(Generic[TRoot]):
             
         return Traversal(self._tree, self._path, sub_paths)
 
-    def filter(self, predicate: Callable[[Any], bool]) -> Traversal[TRoot]:
+    def where(self, predicate: Callable[[Any], bool]) -> Traversal[TRoot]:
         """Traverses all attributes of the current focus that match a condition.
 
         Args:
@@ -123,7 +123,7 @@ class Lens(Generic[TRoot]):
 
         Examples:
             >>> is_active = lambda s: getattr(s, 'is_active', False)
-            >>> new_model = model.at.filter(is_active).apply(freeze)
+            >>> new_model = focus(model).where(is_active).apply(freeze)
         """
         target = self.get()
         sub_paths: list[list[PathStep]] = []
@@ -195,3 +195,47 @@ class Lens(Generic[TRoot]):
             return cast(TRoot, func(self._tree))
             
         return eqx.tree_at(self._get_target_from, self._tree, replace_fn=func)
+    
+    def find(self, predicate: Callable[[Any], bool], is_leaf: Callable[[Any], bool] | None = None) -> Traversal[TRoot]:
+        """Recursively traverses the tree to focus on nodes matching a filter.
+        
+        Powered natively by `jax.tree_util`.
+
+        Args:
+            predicate (Callable[[Any], bool]): Returns True if the node should be selected 
+                for the resulting Traversal.
+            is_leaf (Callable[[Any], bool] | None): An optional function that returns True if 
+                the recursive descent should stop at this node, treating it as an opaque leaf 
+                (similar to JAX's `is_leaf`).
+
+        Returns:
+            Traversal[TRoot]: A Traversal focused on all dynamically found nodes.
+            
+        Examples:
+            >>> is_linear = lambda x: isinstance(x, eqx.nn.Linear)
+            >>> new_model = focus(model).find(is_linear).apply(update_weights)
+        """
+        target = self.get()
+        
+        # JAX needs to treat a node as a leaf if it's either a user-defined leaf or a match
+        def jax_is_leaf(node: Any) -> bool:
+            should_stop = is_leaf is not None and is_leaf(node)
+            is_match = predicate(node)
+            return should_stop or is_match
+
+        leaves_with_paths = jtu.tree_leaves_with_path(target, is_leaf=jax_is_leaf)
+        
+        sub_paths = []
+        for jax_path, val in leaves_with_paths:
+            if predicate(val):
+                relative_path = translate_jax_path(jax_path)
+                sub_paths.append(relative_path)
+                
+        return Traversal(self._tree, self._path, sub_paths)
+    
+    
+def focus(tree: TRoot) -> Lens[TRoot]:
+    """
+    Returns a lens focused on self.
+    """
+    return Lens(tree)

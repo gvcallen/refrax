@@ -1,9 +1,10 @@
 from typing import Generic, Any, Callable, cast
 
 import equinox as eqx
+import jax.tree_util as jtu
 
 from refrax.custom_types import TRoot, PathStep, PathOp
-from refrax.utils import parse_string_path
+from refrax.utils import parse_string_path, translate_jax_path
 
 class Traversal(Generic[TRoot]):
     """Represents a multi-target focus within an immutable PyTree.
@@ -145,4 +146,38 @@ class Traversal(Generic[TRoot]):
         
         # Append the parsed steps to all diverging paths
         new_sub_paths = [path + parsed_steps for path in self._sub_paths]
+        return Traversal(self._tree, self._base_path, new_sub_paths)
+    
+    def find(self, predicate: Callable[[Any], bool], is_leaf: Callable[[Any], bool] | None = None) -> "Traversal[TRoot]":
+        """Recursively traverses the tree to focus on nodes matching a filter.
+
+        Powered natively by `jax.tree_util`.
+
+        Args:
+            predicate (Callable[[Any], bool]): Returns True if the node should be selected 
+                for the resulting Traversal.
+            is_leaf (Callable[[Any], bool] | None): An optional function that returns True if 
+                the recursive descent should stop at this node, treating it as an opaque leaf 
+                (similar to JAX's `is_leaf`).
+
+        Returns:
+            Traversal[TRoot]: A new Traversal focused on all recursively found targets.
+        """
+        targets = self._get_targets_from(self._tree)
+        new_sub_paths = []
+        
+        def jax_is_leaf(node: Any) -> bool:
+            should_stop = is_leaf is not None and is_leaf(node)
+            is_match = predicate(node)
+            return should_stop or is_match
+        
+        # Iterate over both the current sub_paths and their resolved values
+        for path, target_val in zip(self._sub_paths, targets):
+            leaves_with_paths = jtu.tree_leaves_with_path(target_val, is_leaf=jax_is_leaf)
+            for jax_path, val in leaves_with_paths:
+                if predicate(val):
+                    # Translate the JAX KeyPath and append it to the existing divergence path
+                    relative_path = translate_jax_path(jax_path)
+                    new_sub_paths.append(path + relative_path)
+                
         return Traversal(self._tree, self._base_path, new_sub_paths)
