@@ -52,7 +52,6 @@ nav:
   - API:
     - Lens: api/lens.md
     - Traversal: api/traversal.md
-    - Mixin: api/mixin.md
   - License: license.md
 
 extra_javascript:
