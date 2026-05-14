@@ -6,6 +6,7 @@ import jax.tree_util as jtu
 from refrax.custom_types import TRoot, PathStep, PathOp
 from refrax.utils import parse_string_path, translate_jax_path
 
+
 class Traversal(Generic[TRoot]):
     """Represents a multi-target focus within an immutable PyTree.
 
@@ -71,20 +72,14 @@ class Traversal(Generic[TRoot]):
                     curr = curr[val]
             targets.append(curr)
         return tuple(targets)
-
-    def apply(self, func: Callable[[Any], Any]) -> TRoot:
-        """Applies a function to all selected targets simultaneously.
-
-        Args:
-            func (Callable[[Any], Any]): The transformation function to apply to each target.
+    
+    def get(self) -> list[Any]:
+        """Extracts all focused values.
 
         Returns:
-            TRoot: A new instance of the root tree with all targets updated.
+            list[Any]: A list containing the values of all currently focused targets.
         """
-        if not self._sub_paths:
-            return self._tree
-            
-        return eqx.tree_at(self._get_targets_from, self._tree, replace_fn=func)
+        return list(self._get_targets_from(self._tree))    
 
     def set(self, value: Any) -> TRoot:
         """Sets all selected targets to a specific value.
@@ -101,14 +96,59 @@ class Traversal(Generic[TRoot]):
         # eqx.tree_at requires the replacements tuple to match the length of the targets tuple
         replacements = tuple(value for _ in self._sub_paths)
         return eqx.tree_at(self._get_targets_from, self._tree, replace=replacements)
+    
+    def apply(self, func: Callable[[Any], Any]) -> TRoot:
+        """Applies a function to all selected targets simultaneously.
 
-    def get(self) -> list[Any]:
-        """Extracts all focused values.
+        Args:
+            func (Callable[[Any], Any]): The transformation function to apply to each target.
 
         Returns:
-            list[Any]: A list containing the values of all currently focused targets.
+            TRoot: A new instance of the root tree with all targets updated.
         """
-        return list(self._get_targets_from(self._tree))
+        if not self._sub_paths:
+            return self._tree
+            
+        return eqx.tree_at(self._get_targets_from, self._tree, replace_fn=func)    
+    
+    def path(self, target_path: str | tuple) -> "Traversal[TRoot]":
+        """
+        Broadens the traversal by appending a string path or JAX KeyPath to every currently focused target.
+
+        Args:
+            target_path (str | tuple): The path string (e.g., '.res.R') or native 
+                JAX KeyPath tuple.
+
+        Returns:
+            Traversal[TRoot]: A new Traversal focused one level deeper across all branches.
+        """
+        if isinstance(target_path, str):
+            parsed_steps = parse_string_path(target_path)
+        elif isinstance(target_path, tuple):
+            parsed_steps = translate_jax_path(target_path)
+        else:
+            raise TypeError(f"Expected string or JAX path tuple, got {type(target_path).__name__}")
+        
+        # Append the parsed steps to all diverging paths
+        new_sub_paths = [path + parsed_steps for path in self._sub_paths]
+        return Traversal(self._tree, self._base_path, new_sub_paths)
+    
+    def select(self, *paths: str | tuple) -> "Traversal[TRoot]":
+        parsed_additions = []
+        for p in paths:
+            if isinstance(p, str):
+                parsed_additions.append(parse_string_path(p))
+            elif isinstance(p, tuple):
+                parsed_additions.append(translate_jax_path(p))
+            else:
+                raise TypeError("Expected string or JAX path tuple")
+                
+        new_sub_paths = []
+        for existing_path in self._sub_paths:
+            for addition in parsed_additions:
+                new_sub_paths.append(existing_path + addition)
+                
+        return Traversal(self._tree, self._base_path, new_sub_paths)    
     
     def filter(self, predicate: Callable[[Any], bool]) -> "Traversal[TRoot]":
         """Filters the currently focused targets, keeping only those that match the condition.
@@ -129,60 +169,21 @@ class Traversal(Generic[TRoot]):
                 filtered_paths.append(path)
                 
         return Traversal(self._tree, self._base_path, filtered_paths)
-    
-    def path(self, path_str: str) -> "Traversal[TRoot]":
-        """
-        Broadens the traversal by appending a JAX-style string path to every currently focused target.
+
+    def exclude(self, predicate: Callable[[Any], bool]) -> "Traversal[TRoot]":
+        """Filters the currently focused targets, dropping those that match the condition.
         
-        The expected string path matches that returned by `jax.tree_util.keystr`.
+        This is the logical inverse of `.filter()`.
 
         Args:
-            path_str (str): The JAX-style path string (e.g., '.res.R' or '.cascade[0]').
+            predicate (Callable[[Any], bool]): A function that returns True to drop a target.
 
         Returns:
-            Traversal[TRoot]: A new Traversal focused one level deeper across all branches.
+            Traversal[TRoot]: A new Traversal with the matching targets removed.
         """
-        parsed_steps = parse_string_path(path_str)
-        
-        # Append the parsed steps to all diverging paths
-        new_sub_paths = [path + parsed_steps for path in self._sub_paths]
-        return Traversal(self._tree, self._base_path, new_sub_paths)
+        return self.filter(lambda x: not predicate(x))
     
-    def find(self, predicate: Callable[[Any], bool], is_leaf: Callable[[Any], bool] | None = None) -> "Traversal[TRoot]":
-        """Recursively traverses the tree to focus on nodes matching a filter.
-
-        Powered natively by `jax.tree_util`.
-
-        Args:
-            predicate (Callable[[Any], bool]): Returns True if the node should be selected 
-                for the resulting Traversal.
-            is_leaf (Callable[[Any], bool] | None): An optional function that returns True if 
-                the recursive descent should stop at this node, treating it as an opaque leaf 
-                (similar to JAX's `is_leaf`).
-
-        Returns:
-            Traversal[TRoot]: A new Traversal focused on all recursively found targets.
-        """
-        targets = self._get_targets_from(self._tree)
-        new_sub_paths = []
-        
-        def jax_is_leaf(node: Any) -> bool:
-            should_stop = is_leaf is not None and is_leaf(node)
-            is_match = predicate(node)
-            return should_stop or is_match
-        
-        # Iterate over both the current sub_paths and their resolved values
-        for path, target_val in zip(self._sub_paths, targets):
-            leaves_with_paths = jtu.tree_leaves_with_path(target_val, is_leaf=jax_is_leaf)
-            for jax_path, val in leaves_with_paths:
-                if predicate(val):
-                    # Translate the JAX KeyPath and append it to the existing divergence path
-                    relative_path = translate_jax_path(jax_path)
-                    new_sub_paths.append(path + relative_path)
-                
-        return Traversal(self._tree, self._base_path, new_sub_paths)
-    
-    def prune(self, *path_strs: str) -> "Traversal[TRoot]":
+    def prune(self, *paths: str | tuple) -> "Traversal[TRoot]":
         """
         Filters out targets from the Traversal that intersect with the given paths.
         
@@ -191,13 +192,20 @@ class Traversal(Generic[TRoot]):
         implicitly mutates its children, so parents of excluded paths must be pruned).
 
         Args:
-            *path_strs (str): JAX-style string paths to protect from mutation.
+            *paths (str | tuple): String paths or JAX KeyPath tuples to protect from mutation.
 
         Returns:
             Traversal[TRoot]: A new Traversal with the intersecting paths removed.
         """
-        # Parse the user's string paths into refrax PathSteps
-        parsed_excludes = [parse_string_path(p) for p in path_strs]
+        # Parse the user's paths into refrax PathSteps
+        parsed_excludes = []
+        for p in paths:
+            if isinstance(p, str):
+                parsed_excludes.append(parse_string_path(p))
+            elif isinstance(p, tuple):
+                parsed_excludes.append(translate_jax_path(p))
+            else:
+                raise TypeError(f"Expected string or JAX path tuple, got {type(p).__name__}")
         
         kept_sub_paths = []
         for path in self._sub_paths:
@@ -207,13 +215,11 @@ class Traversal(Generic[TRoot]):
             should_prune = False
             for ex_path in parsed_excludes:
                 # 1. Is the target a PARENT of the excluded path? (or an exact match)
-                # e.g., target='antenna', exclude='antenna.balun' -> PRUNE target
                 if len(full_target_path) <= len(ex_path) and ex_path[:len(full_target_path)] == full_target_path:
                     should_prune = True
                     break
                 
                 # 2. Is the target a CHILD of the excluded path?
-                # e.g., exclude='antenna', target='antenna.balun' -> PRUNE target
                 if len(full_target_path) > len(ex_path) and full_target_path[:len(ex_path)] == ex_path:
                     should_prune = True
                     break
@@ -222,3 +228,51 @@ class Traversal(Generic[TRoot]):
                 kept_sub_paths.append(path)
                 
         return Traversal(self._tree, self._base_path, kept_sub_paths)
+    
+    def leaves(self, is_leaf: Callable[[Any], bool] | None = None) -> "Traversal[TRoot]":
+        targets = self.get()
+        new_sub_paths = []
+        
+        for path, target_val in zip(self._sub_paths, targets):
+            leaves_with_paths = jtu.tree_leaves_with_path(target_val, is_leaf=is_leaf)
+            for jax_path, _val in leaves_with_paths:
+                relative_path = translate_jax_path(jax_path)
+                new_sub_paths.append(path + relative_path)
+                
+        return Traversal(self._tree, self._base_path, new_sub_paths)
+    
+    def where(self, predicate: Callable[[Any], bool]) -> "Traversal[TRoot]":
+        targets = self.get()
+        new_sub_paths = []
+        
+        for path, target_val in zip(self._sub_paths, targets):
+            if isinstance(target_val, dict):
+                for k, val in target_val.items():
+                    if predicate(val):
+                        new_sub_paths.append(path + [("item", k)])
+            elif isinstance(target_val, (list, tuple)):
+                for i, val in enumerate(target_val):
+                    if predicate(val):
+                        new_sub_paths.append(path + [("item", i)])
+            elif hasattr(target_val, '__dict__'):
+                for attr_name, val in vars(target_val).items():
+                    if not attr_name.startswith('_') and predicate(val):
+                        new_sub_paths.append(path + [("attr", attr_name)])
+                        
+        return Traversal(self._tree, self._base_path, new_sub_paths)
+    
+    def each(self) -> "Traversal[TRoot]":
+        targets = self.get()
+        new_sub_paths = []
+        
+        for path, target_val in zip(self._sub_paths, targets):
+            if isinstance(target_val, dict):
+                for k in target_val.keys():
+                    new_sub_paths.append(path + [("item", k)])
+            elif isinstance(target_val, (list, tuple)):
+                for i in range(len(target_val)):
+                    new_sub_paths.append(path + [("item", i)])
+            else:
+                raise TypeError(f"Cannot iterate over {type(target_val).__name__} with .each()")
+                
+        return Traversal(self._tree, self._base_path, new_sub_paths)

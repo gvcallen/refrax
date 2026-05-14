@@ -52,41 +52,104 @@ class Lens(Generic[TRoot]):
         """
         op: PathOp = "attr" if isinstance(key, str) else "item"
         return Lens(self._tree, self._path + [(op, key)])
-
-    # --- The Bridge to Traversal ---
     
-    def select(self, *names: str) -> Traversal[TRoot]:
-        """Branches the Lens into a Traversal targeting multiple (potentially nested) attributes.
+    def _get_target_from(self, tree: Any) -> Any:
+        """Traverses the recorded path from a specified tree to return the target node.
         
-        Supports JAX-style string paths e.g. returned by `jax.tree_util.keystr`.
+        This is designed to be passed cleanly into `eqx.tree_at`.
 
         Args:
-            *names (str): A variable number of attribute paths to target (e.g., 'attr1' or 'attr1.attr2[0]').
+            tree (Any): The tree to traverse.
+
+        Returns:
+            Any: The resolved target node.
+        """
+        curr: Any = tree
+        for op_type, val in self._path:
+            if op_type == "attr":
+                curr = getattr(curr, cast(str, val))
+            elif op_type == "item":
+                curr = curr[val]
+        return curr    
+
+    def get(self) -> Any:
+        """Extracts the currently focused value.
+
+        Returns:
+            Any: The value at the end of the Lens path.
+        """
+        return self._get_target_from(self._tree)
+
+    def set(self, value: Any) -> TRoot:
+        """Sets the focused target to a specific value.
+
+        Args:
+            value (Any): The new value to assign.
+
+        Returns:
+            TRoot: A new instance of the root tree with the updated value.
+        """
+        if not self._path:
+            return cast(TRoot, value)
+            
+        return eqx.tree_at(self._get_target_from, self._tree, replace=value)
+    
+    def apply(self, func: Callable[[Any], Any]) -> TRoot:
+        """Applies a transformation function to the focused target.
+
+        Args:
+            func (Callable[[Any], Any]): The function to transform the current value.
+
+        Returns:
+            TRoot: A new instance of the root tree with the updated value.
+        """
+        if not self._path:
+            return cast(TRoot, func(self._tree))
+            
+        return eqx.tree_at(self._get_target_from, self._tree, replace_fn=func)    
+    
+    def path(self, target_path: str | tuple) -> "Lens[TRoot]":
+        """Advances the Lens focus based on a string path or JAX KeyPath tuple.
+
+        Args:
+            target_path (str | tuple): The path string (e.g., '.res.R') or native 
+                JAX KeyPath tuple.
+
+        Returns:
+            Lens[TRoot]: A new Lens focused on the parsed path.
+        """
+        if isinstance(target_path, str):
+            parsed_steps = parse_string_path(target_path)
+        elif isinstance(target_path, tuple):
+            parsed_steps = translate_jax_path(target_path)
+        else:
+            raise TypeError(f"Expected string or JAX path tuple, got {type(target_path).__name__}")
+            
+        return Lens(self._tree, self._path + parsed_steps)    
+    
+    def select(self, *paths: str | tuple) -> Traversal[TRoot]:
+        """Branches the Lens into a Traversal targeting multiple attributes.
+        
+        Supports JAX-style string paths (e.g., '.a[0].b') OR native JAX 
+        KeyPath tuples returned by `jax.tree_util`.
+
+        Args:
+            *paths (str | tuple): A variable number of attribute paths to target.
 
         Returns:
             Traversal[TRoot]: A Traversal object focused on the specified attributes.
         """
         sub_paths: list[list[PathStep]] = []
-        for name in names:
-            sub_paths.append(parse_string_path(name))
+        for p in paths:
+            if isinstance(p, str):
+                sub_paths.append(parse_string_path(p))
+            elif isinstance(p, tuple):
+                sub_paths.append(translate_jax_path(p))
+            else:
+                raise TypeError(f"Expected string or JAX path tuple, got {type(p).__name__}")
             
         return Traversal(self._tree, self._path, sub_paths)
     
-    def path(self, path_str: str) -> "Lens[TRoot]":
-        """
-        Parses a JAX-style string path and advances the Lens focus accordingly.
-        
-        The expected string path matches that returned by `jax.tree_util.keystr`.
-
-        Args:
-            path_str (str): The JAX-style path string (e.g., '.res.R' or '.cascade[0]').
-
-        Returns:
-            Lens[TRoot]: A new Lens focused on the parsed path.
-        """
-        parsed_steps = parse_string_path(path_str)
-        return Lens(self._tree, self._path + parsed_steps)
-
     def each(self) -> Traversal[TRoot]:
         """Transforms a focus on a collection into a Traversal of its elements.
 
@@ -112,124 +175,49 @@ class Lens(Generic[TRoot]):
         return Traversal(self._tree, self._path, sub_paths)
 
     def where(self, predicate: Callable[[Any], bool]) -> Traversal[TRoot]:
-        """Traverses all attributes of the current focus that match a condition.
+        """Traverses immediate items/attributes of the current focus that match a condition.
 
         Args:
-            predicate (Callable[[Any], bool]): A function that takes an attribute value 
-                and returns True if it should be included in the Traversal.
+            predicate (Callable[[Any], bool]): Returns True if the immediate child 
+                should be included in the Traversal.
 
         Returns:
-            Traversal[TRoot]: A Traversal object focused on all matching attributes.
-
-        Examples:
-            >>> is_active = lambda s: getattr(s, 'is_active', False)
-            >>> new_model = focus(model).where(is_active).apply(freeze)
+            Traversal[TRoot]: A Traversal focused on matching immediate children.
         """
         target = self.get()
         sub_paths: list[list[PathStep]] = []
         
-        for attr_name in dir(target):
-            if not attr_name.startswith('_'):
-                try:
-                    val = getattr(target, attr_name)
+        # 1. Standard Python Collections
+        if isinstance(target, dict):
+            for k, val in target.items():
+                if predicate(val):
+                    sub_paths.append([("item", k)])
+                    
+        elif isinstance(target, (list, tuple)):
+            for i, val in enumerate(target):
+                if predicate(val):
+                    sub_paths.append([("item", i)])
+                    
+        elif hasattr(target, '__dict__'):
+            for attr_name, val in vars(target).items():
+                if not attr_name.startswith('_'):
                     if predicate(val):
                         sub_paths.append([("attr", attr_name)])
-                except Exception:
-                    pass  # Skip properties that error on read
-                    
+                        
         return Traversal(self._tree, self._path, sub_paths)
-
-    # --- Core Retrieval & eqx.tree_at Logic ---
-
-    def _get_target_from(self, tree: Any) -> Any:
-        """Traverses the recorded path from a specified tree to return the target node.
-        
-        This is designed to be passed cleanly into `eqx.tree_at`.
-
-        Args:
-            tree (Any): The tree to traverse.
-
-        Returns:
-            Any: The resolved target node.
-        """
-        curr: Any = tree
-        for op_type, val in self._path:
-            if op_type == "attr":
-                curr = getattr(curr, cast(str, val))
-            elif op_type == "item":
-                curr = curr[val]
-        return curr
-
-    def get(self) -> Any:
-        """Extracts the currently focused value.
-
-        Returns:
-            Any: The value at the end of the Lens path.
-        """
-        return self._get_target_from(self._tree)
-
-    def set(self, value: Any) -> TRoot:
-        """Sets the focused target to a specific value.
-
-        Args:
-            value (Any): The new value to assign.
-
-        Returns:
-            TRoot: A new instance of the root tree with the updated value.
-        """
-        if not self._path:
-            return cast(TRoot, value)
-            
-        return eqx.tree_at(self._get_target_from, self._tree, replace=value)
-
-    def apply(self, func: Callable[[Any], Any]) -> TRoot:
-        """Applies a transformation function to the focused target.
-
-        Args:
-            func (Callable[[Any], Any]): The function to transform the current value.
-
-        Returns:
-            TRoot: A new instance of the root tree with the updated value.
-        """
-        if not self._path:
-            return cast(TRoot, func(self._tree))
-            
-        return eqx.tree_at(self._get_target_from, self._tree, replace_fn=func)
     
-    def find(self, predicate: Callable[[Any], bool], is_leaf: Callable[[Any], bool] | None = None) -> Traversal[TRoot]:
-        """Recursively traverses the tree to focus on nodes matching a filter.
+    def leaves(self, is_leaf: Callable[[Any], bool] | None = None) -> Traversal[TRoot]:
+        """Instantly branches the Lens into a Traversal of all leaf nodes (arrays/scalars).
         
-        Powered natively by `jax.tree_util`.
-
-        Args:
-            predicate (Callable[[Any], bool]): Returns True if the node should be selected 
-                for the resulting Traversal.
-            is_leaf (Callable[[Any], bool] | None): An optional function that returns True if 
-                the recursive descent should stop at this node, treating it as an opaque leaf 
-                (similar to JAX's `is_leaf`).
-
-        Returns:
-            Traversal[TRoot]: A Traversal focused on all dynamically found nodes.
-            
-        Examples:
-            >>> is_linear = lambda x: isinstance(x, eqx.nn.Linear)
-            >>> new_model = focus(model).find(is_linear).apply(update_weights)
+        Powered by JAX's C++ backend (tree_leaves_with_path), making it lightning fast.
         """
         target = self.get()
-        
-        # JAX needs to treat a node as a leaf if it's either a user-defined leaf or a match
-        def jax_is_leaf(node: Any) -> bool:
-            should_stop = is_leaf is not None and is_leaf(node)
-            is_match = predicate(node)
-            return should_stop or is_match
-
-        leaves_with_paths = jtu.tree_leaves_with_path(target, is_leaf=jax_is_leaf)
+        leaves_with_paths = jtu.tree_leaves_with_path(target, is_leaf=is_leaf)
         
         sub_paths = []
-        for jax_path, val in leaves_with_paths:
-            if predicate(val):
-                relative_path = translate_jax_path(jax_path)
-                sub_paths.append(relative_path)
+        for jax_path, _val in leaves_with_paths:
+            relative_path = translate_jax_path(jax_path)
+            sub_paths.append(relative_path)
                 
         return Traversal(self._tree, self._path, sub_paths)
     

@@ -1,8 +1,8 @@
 # Refrax
 
-**Refrax** is a small library implementing the *optics* functional pattern for [JAX](https://github.com/jax-ml/jax) PyTrees.
+**Refrax** is a small, pragmatic library implementing the *optics* pattern for [JAX](https://github.com/jax-ml/jax) PyTrees.
 
-It focuses on elegant syntax and deep conditional chains as opposed to strict static typing.
+It focuses on elegant syntax and composable conditional chains to provide easy yet powerful PyTree manipulation.
 
 ## Installation
 
@@ -46,6 +46,12 @@ model.core.bias
 
 model.head.bias
 # [1.634, 1.877]
+```
+
+One of the useful optics methods is simply traversing over a PyTree's leaves:
+```python
+len(focus(model).leaves().get())
+# 5
 ```
 
 ## Documentation
