@@ -2,7 +2,12 @@ import re
 from refrax.custom_types import PathStep
 
 def parse_string_path(path_str: str) -> list[PathStep]:
-    """Converts a JAX-style string path (e.g., '.a[0].b') into PathSteps."""
+    """Converts a JAX-style string path (e.g., '.a[0].b' or 'a[0]') into PathSteps."""
+    
+    # Allow no dot at start
+    if path_str and not path_str.startswith(('.', '[')):
+        path_str = '.' + path_str
+
     # Matches: .attribute_name OR [integer] OR ['string_key']
     pattern = re.compile(r"\.([a-zA-Z_]\w*)|\[(-?\d+)\]|\[['\"](.*?)['\"]\]")
     
