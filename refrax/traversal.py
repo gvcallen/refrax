@@ -181,3 +181,44 @@ class Traversal(Generic[TRoot]):
                     new_sub_paths.append(path + relative_path)
                 
         return Traversal(self._tree, self._base_path, new_sub_paths)
+    
+    def prune(self, *path_strs: str) -> "Traversal[TRoot]":
+        """
+        Filters out targets from the Traversal that intersect with the given paths.
+        
+        Crucially, this prunes a target if it is exactly the excluded path, inside 
+        the excluded path, OR a parent of the excluded path. (Mutating a parent 
+        implicitly mutates its children, so parents of excluded paths must be pruned).
+
+        Args:
+            *path_strs (str): JAX-style string paths to protect from mutation.
+
+        Returns:
+            Traversal[TRoot]: A new Traversal with the intersecting paths removed.
+        """
+        # Parse the user's string paths into refrax PathSteps
+        parsed_excludes = [parse_string_path(p) for p in path_strs]
+        
+        kept_sub_paths = []
+        for path in self._sub_paths:
+            # Reconstruct the absolute path from the root to the target
+            full_target_path = self._base_path + path
+            
+            should_prune = False
+            for ex_path in parsed_excludes:
+                # 1. Is the target a PARENT of the excluded path? (or an exact match)
+                # e.g., target='antenna', exclude='antenna.balun' -> PRUNE target
+                if len(full_target_path) <= len(ex_path) and ex_path[:len(full_target_path)] == full_target_path:
+                    should_prune = True
+                    break
+                
+                # 2. Is the target a CHILD of the excluded path?
+                # e.g., exclude='antenna', target='antenna.balun' -> PRUNE target
+                if len(full_target_path) > len(ex_path) and full_target_path[:len(ex_path)] == ex_path:
+                    should_prune = True
+                    break
+                    
+            if not should_prune:
+                kept_sub_paths.append(path)
+                
+        return Traversal(self._tree, self._base_path, kept_sub_paths)
